@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Callable, Iterable, List, Tuple
 
@@ -22,6 +22,10 @@ def _deduplicate(papers: Iterable[Paper]) -> List[Paper]:
     return unique
 
 
+def _sort_papers(papers: Iterable[Paper]) -> List[Paper]:
+    return sorted(papers, key=lambda p: p.published or datetime.min, reverse=True)
+
+
 @dataclass(slots=True)
 class PaperAlertRun:
     new_papers: List[Paper]
@@ -29,6 +33,7 @@ class PaperAlertRun:
     cached_count: int
     candidate_count: int
     source_count: int
+    candidate_papers: List[Paper] = field(default_factory=list)
 
 
 def run_paper_alert(
@@ -37,18 +42,18 @@ def run_paper_alert(
     progress: Callable[[str], None] | None = None,
 ) -> PaperAlertRun:
     papers, errors = gather_papers(cfg, progress=progress)
-    unique = _deduplicate(papers)
+    candidate_papers = _sort_papers(_deduplicate(papers))
     store = SeenStore(cfg.store_path)
-    new_papers = store.mark_seen(unique)
+    new_papers = store.mark_seen(candidate_papers)
     errors.extend(store.warnings)
-    new_papers.sort(key=lambda p: p.published or datetime.min, reverse=True)
     cached_count = len(store.load())
     return PaperAlertRun(
         new_papers=new_papers,
         errors=errors,
         cached_count=cached_count,
-        candidate_count=len(unique),
+        candidate_count=len(candidate_papers),
         source_count=len(cfg.sources),
+        candidate_papers=candidate_papers,
     )
 
 

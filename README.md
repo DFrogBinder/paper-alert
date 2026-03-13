@@ -24,11 +24,14 @@ Run the checker manually:
 python3 -m paper_alert --show-errors
 ```
 
+If you install the package, the same CLI is also exposed as `paper-alert` and `ppl`.
+
 Common options:
 - `--quiet-if-none` – suppress output when nothing new is found (ideal for shell startup)
 - `--show-errors` – surface transient fetch problems
 - `--show-summary` – print a one-line status summary with source count, candidate count, and cached count
 - `--show-progress` – print source-by-source progress while checking APIs
+- `--show-candidate` / `--show-candidates` – print the deduplicated candidate-paper list before the seen-store filters out already-cached items
 - `--keywords "kw1,kw2"` – override the keyword list
 - `--sources "arxiv,pubmed"` – restrict active sources
 - `--max-results 50` – change per-source limit
@@ -66,6 +69,10 @@ Practical invocations you can copy/paste or adapt:
 - **See what the tool is doing and how much state it has cached** – useful when tuning or debugging startup behavior.
   ```sh
   python3 -m paper_alert --show-summary --show-progress --show-errors
+  ```
+- **List every deduplicated candidate title, including already-seen papers** – useful when you want to inspect the full fetched set instead of only new items.
+  ```sh
+  ppl --show-candidate --show-summary
   ```
 - **Focus on two sources with custom keywords and a tighter quota** – helpful when testing changes quickly.
   ```sh
@@ -124,6 +131,7 @@ If no new papers are found the snippet above stays silent (because of `--quiet-i
 - `PAPER_ALERT_USER_AGENT` is read when requests are made, so environment changes take effect immediately on the next run.
 - Source matching is less title-biased than before: arXiv, Crossref, and Semantic Scholar also inspect summary or abstract fields, and PubMed trusts the upstream query result instead of re-filtering on title alone.
 - `--show-summary` reports how many sources were checked, how many candidate papers were considered, how many were new, and how many cached identifiers are now stored locally.
+- `--show-candidates` prints the deduplicated candidate-paper list before the seen-store removes items you have already seen.
 
 ### Code pipeline block diagram
 ```
@@ -204,6 +212,7 @@ conda create --name paper-alert python=3.12
 conda activate paper-alert
 pip install -e .[dev]
 ```
+That installation exposes `paper-alert` and `ppl` as shell commands in the active environment.
 The development extras install the pinned tooling declared in `pyproject.toml` (currently `pytest==7.4.4`). Runtime code relies solely on the Python standard library.
 
 ## Next steps

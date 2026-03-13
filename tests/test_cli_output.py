@@ -43,6 +43,7 @@ def test_main_hides_optional_fetch_warnings_without_show_errors(monkeypatch, cap
             cached_count=1,
             candidate_count=1,
             source_count=1,
+            candidate_papers=[paper],
         ),
     )
 
@@ -98,3 +99,45 @@ def test_main_prints_progress_when_requested(monkeypatch, capsys):
     captured = capsys.readouterr()
     assert exit_code == 0
     assert "[paper-alert] checking arxiv" in captured.out
+
+
+def test_main_prints_candidates_when_requested(monkeypatch, capsys):
+    candidates = [
+        Paper(
+            source="arxiv",
+            identifier="one",
+            title="Candidate paper one",
+            url="https://example.com/one",
+            published=datetime(2024, 6, 1),
+        ),
+        Paper(
+            source="pubmed",
+            identifier="two",
+            title="Candidate paper two",
+            url="https://example.com/two",
+            published=datetime(2024, 5, 1),
+        ),
+    ]
+
+    monkeypatch.setattr(
+        "paper_alert.cli.run_paper_alert",
+        lambda cfg, progress=None: PaperAlertRun(
+            new_papers=[],
+            errors=[],
+            cached_count=14,
+            candidate_count=2,
+            source_count=6,
+            candidate_papers=candidates,
+        ),
+    )
+
+    from paper_alert import cli
+
+    exit_code = cli.main(["--show-candidate"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "Candidate Papers" in captured.out
+    assert "Candidate paper one" in captured.out
+    assert "Candidate paper two" in captured.out
+    assert "No new temporal interference papers detected." not in captured.out

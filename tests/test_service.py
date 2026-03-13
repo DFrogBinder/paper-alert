@@ -115,6 +115,7 @@ def test_run_paper_alert_reports_counts(monkeypatch, cfg):
     run = run_paper_alert(cfg)
 
     assert [paper.identifier for paper in run.new_papers] == ["new", "old"]
+    assert [paper.identifier for paper in run.candidate_papers] == ["new", "old"]
     assert run.candidate_count == 2
     assert run.cached_count == 2
     assert run.source_count == 1

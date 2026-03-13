@@ -46,6 +46,36 @@ def _print_progress(message: str) -> None:
     print(f"[paper-alert] {message}")
 
 
+def _print_paper_list(
+    title: str,
+    papers: Iterable[Paper],
+    *,
+    max_display: int | None = None,
+) -> None:
+    papers = list(papers)
+    total = len(papers)
+    displayed = papers if max_display is None else papers[:max_display]
+    shown_label = (
+        f"showing {len(displayed)} of {total}"
+        if total > len(displayed)
+        else f"{total} shown"
+    )
+
+    print("=" * 72)
+    print(f"{title} — {shown_label}")
+    print("=" * 72)
+    for index, paper in enumerate(displayed, start=1):
+        date = paper.published.strftime("%Y-%m-%d") if paper.published else "date unknown"
+        print(f"{index}. {paper.title}")
+        print(f"   Source: {paper.source} | Published: {date}")
+        print()
+    if max_display is not None and total > len(displayed):
+        remaining = total - len(displayed)
+        suffix = "paper" if remaining == 1 else "papers"
+        print(f"...and {remaining} more {suffix}.")
+    print("=" * 72)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
@@ -90,6 +120,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="Print source-by-source progress while the fetch is running.",
     )
+    parser.add_argument(
+        "--show-candidate",
+        "--show-candidates",
+        dest="show_candidates",
+        action="store_true",
+        help="Print deduplicated candidate papers before filtering against the seen-store.",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -113,14 +150,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     progress = _print_progress if args.show_progress else None
     run = run_paper_alert(config, progress=progress)
     new_papers = run.new_papers
+    candidate_papers = run.candidate_papers
     errors = run.errors
     always_show = [error for error in errors if _should_always_show_error(error)]
     optional_errors = [error for error in errors if not _should_always_show_error(error)]
+    showed_candidates = False
+
+    if args.show_candidates and candidate_papers:
+        _print_paper_list("Candidate Papers", candidate_papers)
+        showed_candidates = True
 
     if not new_papers:
         if args.show_summary:
             print(_format_summary(run))
-        elif not args.quiet_if_none:
+        elif not args.quiet_if_none and not showed_candidates:
             print("No new temporal interference papers detected.")
         if always_show:
             _print_errors(always_show)
@@ -139,30 +182,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _print_banner(papers: Iterable[Paper]) -> None:
-    papers = list(papers)
-    total = len(papers)
-    max_display = 3
-    displayed = papers[:max_display]
-
-    shown_label = (
-        f"showing {len(displayed)} of {total}"
-        if total > len(displayed)
-        else f"{total} shown"
-    )
-
-    print("=" * 72)
-    print(f"New Temporal Interference Papers — {shown_label}")
-    print("=" * 72)
-    for index, paper in enumerate(displayed, start=1):
-        date = paper.published.strftime("%Y-%m-%d") if paper.published else "date unknown"
-        print(f"{index}. {paper.title}")
-        print(f"   Source: {paper.source} | Published: {date}")
-        print()
-    if total > len(displayed):
-        remaining = total - len(displayed)
-        suffix = "paper" if remaining == 1 else "papers"
-        print(f"...and {remaining} more new {suffix}.")
-    print("=" * 72)
+    _print_paper_list("New Temporal Interference Papers", papers, max_display=3)
 
 
 def _print_errors(errors: Iterable[str]) -> None:
