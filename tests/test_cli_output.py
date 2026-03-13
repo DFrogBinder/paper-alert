@@ -22,11 +22,11 @@ def test_main_always_shows_store_warnings(monkeypatch, capsys, tmp_path):
 
     captured = capsys.readouterr()
     assert exit_code == 0
-    assert "Warnings during fetch:" in captured.out
+    assert "Warnings" in captured.out
     assert "store: seen-store at" in captured.out
 
 
-def test_main_hides_optional_fetch_warnings_without_show_errors(monkeypatch, capsys):
+def test_main_renders_summary_banner_by_default_and_hides_optional_errors(monkeypatch, capsys):
     paper = Paper(
         source="arxiv",
         identifier="one",
@@ -53,7 +53,9 @@ def test_main_hides_optional_fetch_warnings_without_show_errors(monkeypatch, cap
 
     captured = capsys.readouterr()
     assert exit_code == 0
-    assert "Useful paper" in captured.out
+    assert "Paper Alert" in captured.out
+    assert "1 new paper ready to review" in captured.out
+    assert "Useful paper" not in captured.out
     assert "transient error" not in captured.out
 
 
@@ -99,6 +101,37 @@ def test_main_prints_progress_when_requested(monkeypatch, capsys):
     captured = capsys.readouterr()
     assert exit_code == 0
     assert "[paper-alert] checking arxiv" in captured.out
+
+
+def test_main_prints_new_papers_when_requested(monkeypatch, capsys):
+    paper = Paper(
+        source="arxiv",
+        identifier="one",
+        title="Useful paper",
+        url="https://example.com/one",
+        published=datetime(2024, 6, 1),
+    )
+
+    monkeypatch.setattr(
+        "paper_alert.cli.run_paper_alert",
+        lambda cfg, progress=None: PaperAlertRun(
+            new_papers=[paper],
+            errors=[],
+            cached_count=1,
+            candidate_count=1,
+            source_count=1,
+            candidate_papers=[paper],
+        ),
+    )
+
+    from paper_alert import cli
+
+    exit_code = cli.main(["--show-new"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "New Papers" in captured.out
+    assert "Useful paper" in captured.out
 
 
 def test_main_prints_candidates_when_requested(monkeypatch, capsys):

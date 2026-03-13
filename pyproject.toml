@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Terminal banner for temporal interference paper updates."
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = ["textual>=0.58,<1.0"]
 
 [project.scripts]
 paper-alert = "paper_alert.cli:main"

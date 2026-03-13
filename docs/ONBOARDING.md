@@ -1,14 +1,14 @@
 # Paper Alert Onboarding
 
-This project is a small CLI that checks several paper APIs for temporal interference-related publications, compares the results against a local seen-store, and prints a short banner for papers it has not alerted on before.
+This project is a small CLI that checks several paper APIs for temporal interference-related publications, compares the results against a local seen-store, and renders a compact startup summary banner. When you want details, it can also print paper lists or open a Textual dashboard.
 
 If you only need the mental model, it is this:
 
-1. `python -m paper_alert` builds config from environment variables and CLI flags.
+1. `ppl` / `python -m paper_alert` builds config from environment variables and CLI flags.
 2. The service layer asks each enabled source adapter for papers.
 3. Results are normalized into a shared `Paper` model.
 4. The seen-store filters out anything already reported.
-5. The CLI prints up to three new papers and optional warnings.
+5. The CLI renders a startup banner by default, or explicit detail views when you ask for them.
 
 ## First 15 Minutes
 
@@ -29,7 +29,7 @@ If you only need the mental model, it is this:
    ```
 3. Run the CLI once with errors enabled:
    ```sh
-   python3 -m paper_alert --show-errors
+   ppl --show-errors
    ```
 4. Run tests:
    ```sh
@@ -39,13 +39,12 @@ If you only need the mental model, it is this:
 If you want the most verbose manual run, use:
 
 ```sh
-PYTHONPATH="/home/boyan/sandbox/paper-alert${PYTHONPATH:+:$PYTHONPATH}" \
-python3 -m paper_alert --show-summary --show-progress --show-errors
+ppl --show-summary --show-progress --show-errors
 ```
 
 ## What It Does
 
-The tool is optimized for shell startup. Its intended use is to run from `.zshrc` or another shell init file, stay quiet when there is nothing new, and show a compact alert when new papers appear.
+The tool is optimized for shell startup. Its intended use is to run from `.zshrc` or another shell init file, stay quiet when there is nothing new, and show a compact styled summary when new papers appear.
 
 It currently queries these sources:
 
@@ -68,7 +67,9 @@ Each source adapter is responsible for:
 Use these files in this order when you need to understand or change behavior:
 
 - [paper_alert/__main__.py](/home/boyan/sandbox/paper-alert/paper_alert/__main__.py): module entry point.
-- [paper_alert/cli.py](/home/boyan/sandbox/paper-alert/paper_alert/cli.py): argument parsing, env override application, terminal output.
+- [paper_alert/cli.py](/home/boyan/sandbox/paper-alert/paper_alert/cli.py): argument parsing, env override application, output mode selection.
+- [paper_alert/ui.py](/home/boyan/sandbox/paper-alert/paper_alert/ui.py): Rich renderables for the startup banner, paper tables, and warnings.
+- [paper_alert/textual_dashboard.py](/home/boyan/sandbox/paper-alert/paper_alert/textual_dashboard.py): Textual dashboard wrapper around the Rich renderables.
 - [paper_alert/config.py](/home/boyan/sandbox/paper-alert/paper_alert/config.py): config loading from environment.
 - [paper_alert/service.py](/home/boyan/sandbox/paper-alert/paper_alert/service.py): orchestration, dedupe, sort, seen-store interaction.
 - [paper_alert/aggregator.py](/home/boyan/sandbox/paper-alert/paper_alert/aggregator.py): per-source dispatch and error collection.
@@ -108,6 +109,9 @@ CLI flags:
 - `--show-errors`
 - `--show-summary`
 - `--show-progress`
+- `--show-new`
+- `--show-candidate` / `--show-candidates`
+- `--dashboard` / `--app`
 
 Precedence is simple: `PaperAlertConfig.from_env()` loads environment defaults first, then [paper_alert/cli.py](/home/boyan/sandbox/paper-alert/paper_alert/cli.py) applies CLI overrides with `dataclasses.replace`.
 
@@ -115,7 +119,10 @@ Precedence is simple: `PaperAlertConfig.from_env()` loads environment defaults f
 
 - Deduplication is done on `Paper.key`, which is just `"{source}:{identifier}"`.
 - New papers are sorted newest-first before display.
-- The banner intentionally shows only the first three new papers and then a count of the remainder.
+- The default run intentionally favors a startup summary banner over paper titles so shell initialization stays compact.
+- `--show-new` prints the full new-paper list for the current run.
+- `--show-candidate` / `--show-candidates` prints the deduplicated candidate-paper list, including already-seen items.
+- `--dashboard` / `--app` opens the Textual dashboard when the `textual` dependency is installed.
 - The seen-store is written only when at least one new paper is found.
 - If the seen-store JSON is unreadable, the CLI warns and treats it as empty for that run.
 - Numeric config inputs are validated early, both from CLI flags and environment variables.
@@ -140,7 +147,8 @@ Add or remove a source:
 
 Change terminal output:
 
-- Edit `_print_banner()` in [paper_alert/cli.py](/home/boyan/sandbox/paper-alert/paper_alert/cli.py).
+- Edit [paper_alert/ui.py](/home/boyan/sandbox/paper-alert/paper_alert/ui.py) for banner/panel styling.
+- Edit [paper_alert/textual_dashboard.py](/home/boyan/sandbox/paper-alert/paper_alert/textual_dashboard.py) for the interactive dashboard layout.
 
 Change state persistence:
 
