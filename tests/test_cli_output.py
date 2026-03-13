@@ -1,0 +1,100 @@
+from __future__ import annotations
+
+from datetime import datetime
+
+from paper_alert.models import Paper
+from paper_alert.service import PaperAlertRun
+
+
+def test_main_always_shows_store_warnings(monkeypatch, capsys, tmp_path):
+    cfg_path = tmp_path / "seen.json"
+    cfg_path.write_text("{broken", encoding="utf-8")
+
+    monkeypatch.setenv("PAPER_ALERT_STORE", str(cfg_path))
+    monkeypatch.setattr(
+        "paper_alert.service.gather_papers",
+        lambda passed_cfg, progress=None: ([], []),
+    )
+
+    from paper_alert import cli
+
+    exit_code = cli.main(["--quiet-if-none"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "Warnings during fetch:" in captured.out
+    assert "store: seen-store at" in captured.out
+
+
+def test_main_hides_optional_fetch_warnings_without_show_errors(monkeypatch, capsys):
+    paper = Paper(
+        source="arxiv",
+        identifier="one",
+        title="Useful paper",
+        url="https://example.com/one",
+        published=datetime(2024, 6, 1),
+    )
+
+    monkeypatch.setattr(
+        "paper_alert.cli.run_paper_alert",
+        lambda cfg, progress=None: PaperAlertRun(
+            new_papers=[paper],
+            errors=["arxiv: transient error"],
+            cached_count=1,
+            candidate_count=1,
+            source_count=1,
+        ),
+    )
+
+    from paper_alert import cli
+
+    exit_code = cli.main([])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "Useful paper" in captured.out
+    assert "transient error" not in captured.out
+
+
+def test_main_prints_summary_when_requested(monkeypatch, capsys):
+    monkeypatch.setattr(
+        "paper_alert.cli.run_paper_alert",
+        lambda cfg, progress=None: PaperAlertRun(
+            new_papers=[],
+            errors=[],
+            cached_count=14,
+            candidate_count=3,
+            source_count=6,
+        ),
+    )
+
+    from paper_alert import cli
+
+    exit_code = cli.main(["--show-summary"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "paper-alert: 6 sources checked, 3 candidate papers, 0 new, 14 cached" in captured.out
+
+
+def test_main_prints_progress_when_requested(monkeypatch, capsys):
+    def fake_run(cfg, progress=None):
+        assert progress is not None
+        progress("checking arxiv")
+        return PaperAlertRun(
+            new_papers=[],
+            errors=[],
+            cached_count=2,
+            candidate_count=1,
+            source_count=1,
+        )
+
+    monkeypatch.setattr("paper_alert.cli.run_paper_alert", fake_run)
+
+    from paper_alert import cli
+
+    exit_code = cli.main(["--show-summary", "--show-progress"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "[paper-alert] checking arxiv" in captured.out
