@@ -53,6 +53,7 @@ def test_main_renders_summary_banner_by_default_and_hides_optional_errors(monkey
 
     captured = capsys.readouterr()
     assert exit_code == 0
+    assert captured.out.startswith("\n")
     assert "Paper Alert" in captured.out
     assert "1 new paper ready to review" in captured.out
     assert "Useful paper" not in captured.out

@@ -160,6 +160,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     detail_requested = args.show_new or args.show_candidates
 
     if not detail_requested and not (args.quiet_if_none and not new_papers):
+        console.print()
         console.print(build_summary_banner(run))
 
     if args.show_summary:
