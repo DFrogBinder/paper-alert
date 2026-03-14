@@ -12,11 +12,11 @@ from rich.text import Text
 from .models import Paper
 from .service import PaperAlertRun
 
-ACCENT = "#38bdf8"
-SUCCESS = "#22c55e"
-WARNING = "#f59e0b"
-DANGER = "#fb7185"
-MUTED = "bright_black"
+ACCENT = "#60a5fa"
+SUCCESS = "#34d399"
+WARNING = "#fbbf24"
+DANGER = "#f87171"
+MUTED = "#94a3b8"
 
 
 def build_summary_banner(run: PaperAlertRun) -> Panel:
@@ -79,9 +79,9 @@ def build_papers_panel(title: str, papers: Iterable[Paper], *, empty_message: st
         )
 
     table = Table(expand=True, box=box.SIMPLE_HEAVY, show_edge=False)
-    table.add_column("Published", style="#cbd5e1", no_wrap=True)
+    table.add_column("Published", style="#dbeafe", no_wrap=True)
     table.add_column("Source", style=ACCENT, no_wrap=True)
-    table.add_column("Title", style="white", ratio=1)
+    table.add_column("Title", style="#f8fafc", ratio=1)
     for paper in papers:
         published = paper.published.strftime("%Y-%m-%d") if paper.published else "date unknown"
         table.add_row(published, paper.source, paper.title)
