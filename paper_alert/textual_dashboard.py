@@ -24,6 +24,10 @@ def _format_published_date(paper: Paper) -> str:
     return paper.published.strftime("%Y-%m-%d") if paper.published else "Date unavailable"
 
 
+def _format_sources_label(paper: Paper) -> str:
+    return ", ".join(_format_source_label(source) for source in paper.all_sources)
+
+
 def _summary_headline(run: PaperAlertRun) -> str:
     new_count = len(run.new_papers)
     seen_count = len(run.seen_papers)
@@ -44,7 +48,9 @@ def _paper_details_text(paper: Paper | None, status: str | None) -> str:
     return (
         f"Title: {paper.title}\n"
         f"Status: {badge}\n"
-        f"Source: {_format_source_label(paper.source)}\n"
+        f"Triage: {paper.triage_state.upper()}\n"
+        f"Sources: {_format_sources_label(paper)}\n"
+        f"Canonical ID: {paper.canonical_id}\n"
         f"Published: {_format_published_date(paper)}\n"
         f"URL: {paper.url}\n"
         "Enter or click opens the selected paper in your browser."
@@ -132,7 +138,7 @@ def _build_dashboard_class():
                 self.add_row(
                     self._status_by_key[paper.key],
                     _format_published_date(paper),
-                    _format_source_label(paper.source),
+                    _format_sources_label(paper),
                     paper.title,
                     key=paper.key,
                 )

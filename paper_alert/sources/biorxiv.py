@@ -36,6 +36,7 @@ def _convert_item(server: str, item: dict, keywords: Iterable[str]) -> Paper | N
         title=title,
         url=url or "https://www.biorxiv.org/",  # fallback to portal
         published=published,
+        doi=doi,
     )
 
 

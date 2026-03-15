@@ -8,8 +8,10 @@ from typing import Sequence
 
 from rich.console import Console
 
+from .constants import TRIAGE_STATES
 from .config import PaperAlertConfig
 from .service import PaperAlertRun, run_paper_alert
+from .store import SeenStore
 from .ui import build_errors_panel, build_papers_panel, build_summary_banner
 
 
@@ -43,6 +45,10 @@ def _format_summary(run: PaperAlertRun) -> str:
         f"{new_count} new, "
         f"{run.cached_count} cached"
     )
+
+
+def _format_archive_summary(count: int) -> str:
+    return f"paper-alert: {count} archived papers matched"
 
 
 def _print_progress(message: str) -> None:
@@ -126,7 +132,48 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="Open the Textual dashboard for interactive inspection.",
     )
+    parser.add_argument(
+        "--show-archive",
+        action="store_true",
+        help="Search the local archive without querying remote sources.",
+    )
+    parser.add_argument(
+        "--search",
+        help="Filter archive results by title, canonical id, or source.",
+    )
+    parser.add_argument(
+        "--state",
+        choices=TRIAGE_STATES,
+        help="Filter archive results by triage state.",
+    )
+    parser.add_argument(
+        "--set-state",
+        nargs=2,
+        metavar=("CANONICAL_ID", "STATE"),
+        help="Update the triage state for a canonical paper id.",
+    )
     args = parser.parse_args(argv)
+
+    archive_only_flags = (
+        args.quiet_if_none,
+        args.show_errors,
+        args.show_progress,
+        args.show_new,
+        args.show_candidates,
+        args.dashboard,
+    )
+    if (args.search or args.state) and not args.show_archive:
+        parser.error("--search and --state require --show-archive")
+    if args.show_archive and any(archive_only_flags):
+        parser.error("--show-archive cannot be combined with fetch-only display flags")
+    if args.set_state:
+        _, triage_state = args.set_state
+        if triage_state.lower() not in TRIAGE_STATES:
+            parser.error(
+                f"--set-state STATE must be one of {', '.join(TRIAGE_STATES)}, got {triage_state!r}"
+            )
+        if any(archive_only_flags):
+            parser.error("--set-state cannot be combined with fetch-only display flags")
 
     try:
         config = PaperAlertConfig.from_env()
@@ -145,6 +192,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         overrides["store_path"] = Path(args.store).expanduser()
     if overrides:
         config = replace(config, **overrides)
+
+    if args.show_archive or args.set_state:
+        return _run_archive_mode(config, args.show_archive, args.search, args.state, args.set_state, args.show_summary)
 
     progress = _print_progress if args.show_progress else None
     run = run_paper_alert(config, progress=progress)
@@ -185,6 +235,44 @@ def main(argv: Sequence[str] | None = None) -> int:
         console.print(build_errors_panel(always_show))
     if args.show_errors and optional_errors:
         console.print(build_errors_panel(optional_errors))
+    return 0
+
+
+def _run_archive_mode(
+    config: PaperAlertConfig,
+    show_archive: bool,
+    search: str | None,
+    state: str | None,
+    set_state_args: Sequence[str] | None,
+    show_summary: bool,
+) -> int:
+    store = SeenStore(config.store_path)
+    console = Console(highlight=False)
+
+    if set_state_args is not None:
+        canonical_id, triage_state = set_state_args[0], set_state_args[1].lower()
+        updated = store.set_triage_state(canonical_id, triage_state)
+        if not updated:
+            print(f"paper-alert: no archived paper found for {canonical_id!r}", file=sys.stderr)
+            return 1
+        print(f"paper-alert: updated {canonical_id} -> {triage_state}")
+
+    if show_archive:
+        archive_papers = store.query_archive(search=search, triage_state=state)
+        console.print(
+            build_papers_panel(
+                "Archive",
+                archive_papers,
+                empty_message="No archived papers matched the current query.",
+                show_triage=True,
+                show_canonical_id=True,
+            )
+        )
+        if show_summary:
+            print(_format_archive_summary(len(archive_papers)))
+
+    if store.warnings:
+        console.print(build_errors_panel(store.warnings))
     return 0
 
 

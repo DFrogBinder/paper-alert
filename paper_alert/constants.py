@@ -10,6 +10,8 @@ DEFAULT_KEYWORDS = (
 )
 
 MAX_RESULTS_PER_SOURCE = 25
+TRIAGE_STATES = ("new", "saved", "dismissed", "later")
+DEFAULT_TRIAGE_STATE = "new"
 
 BIORXIV_LOOKBACK = timedelta(days=30)
 

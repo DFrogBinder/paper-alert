@@ -67,7 +67,18 @@ def build_summary_banner(run: PaperAlertRun) -> Panel:
     )
 
 
-def build_papers_panel(title: str, papers: Iterable[Paper], *, empty_message: str) -> Panel:
+def _paper_sources_label(paper: Paper) -> str:
+    return ", ".join(paper.all_sources)
+
+
+def build_papers_panel(
+    title: str,
+    papers: Iterable[Paper],
+    *,
+    empty_message: str,
+    show_triage: bool = False,
+    show_canonical_id: bool = False,
+) -> Panel:
     papers = list(papers)
     if not papers:
         return Panel(
@@ -80,11 +91,22 @@ def build_papers_panel(title: str, papers: Iterable[Paper], *, empty_message: st
 
     table = Table(expand=True, box=box.SIMPLE_HEAVY, show_edge=False)
     table.add_column("Published", style="#dbeafe", no_wrap=True)
+    if show_triage:
+        table.add_column("State", style=WARNING, no_wrap=True)
     table.add_column("Source", style=ACCENT, no_wrap=True)
     table.add_column("Title", style="#f8fafc", ratio=1)
+    if show_canonical_id:
+        table.add_column("Canonical ID", style=MUTED)
     for paper in papers:
         published = paper.published.strftime("%Y-%m-%d") if paper.published else "date unknown"
-        table.add_row(published, paper.source, paper.title)
+        row = [published]
+        if show_triage:
+            row.append(paper.triage_state.upper())
+        row.append(_paper_sources_label(paper))
+        row.append(paper.title)
+        if show_canonical_id:
+            row.append(paper.canonical_id)
+        table.add_row(*row)
 
     return Panel(
         table,

@@ -39,6 +39,7 @@ def fetch_crossref(keywords: Iterable[str], max_results: int = MAX_RESULTS_PER_S
                 title=title,
                 url=url or "https://search.crossref.org/",
                 published=published,
+                doi=doi,
             )
         )
     return papers

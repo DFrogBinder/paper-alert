@@ -8,6 +8,7 @@ import pytest
 from paper_alert.config import PaperAlertConfig
 from paper_alert.models import Paper
 from paper_alert.service import collect_new_papers, run_paper_alert
+from paper_alert.store import SeenStore
 
 
 @pytest.fixture
@@ -49,15 +50,15 @@ def test_collect_new_papers_deduplicates_and_persists(monkeypatch, cfg):
     assert errors == ["arxiv: transient error"]
     assert new_papers == [newer, older]
 
-    payload = json.loads(cfg.store_path.read_text(encoding="utf-8"))
-    assert payload["seen"] == ["arxiv:new", "arxiv:old"]
+    store = SeenStore(cfg.store_path)
+    assert store.load() == {"arxiv:new", "arxiv:old"}
+    assert [paper.identifier for paper in store.query_archive()] == ["new", "old"]
 
     # Second run should yield no additional papers and leave the store unchanged.
     new_again, errors_again = collect_new_papers(cfg)
     assert new_again == []
     assert errors_again == ["arxiv: transient error"]
-    payload = json.loads(cfg.store_path.read_text(encoding="utf-8"))
-    assert payload["seen"] == ["arxiv:new", "arxiv:old"]
+    assert store.load() == {"arxiv:new", "arxiv:old"}
 
 
 def test_collect_new_papers_surfaces_corrupt_store_warning(monkeypatch, cfg):
@@ -81,8 +82,8 @@ def test_collect_new_papers_surfaces_corrupt_store_warning(monkeypatch, cfg):
     assert errors == [
         f"store: seen-store at {cfg.store_path} contains invalid JSON; treating it as empty"
     ]
-    payload = json.loads(cfg.store_path.read_text(encoding="utf-8"))
-    assert payload["seen"] == ["arxiv:fresh"]
+    store = SeenStore(cfg.store_path)
+    assert store.load() == {"arxiv:fresh"}
 
 
 def test_run_paper_alert_reports_counts(monkeypatch, cfg):
@@ -149,3 +150,40 @@ def test_run_paper_alert_tracks_seen_candidates(monkeypatch, cfg):
     assert [paper.identifier for paper in run.seen_papers] == ["old"]
     assert [paper.identifier for paper in run.candidate_papers] == ["new", "old"]
     assert run.cached_count == 2
+
+
+def test_run_paper_alert_merges_same_paper_across_sources(monkeypatch, tmp_path):
+    cfg = PaperAlertConfig(
+        keywords=("temporal interference",),
+        sources=("crossref", "semanticscholar"),
+        max_results=25,
+        store_path=tmp_path / "archive.sqlite3",
+        biorxiv_lookback_days=30,
+        semanticscholar_api_key=None,
+    )
+    papers = [
+        Paper(
+            source="crossref",
+            identifier="10.1000/example",
+            title="Merged paper",
+            url="https://doi.org/10.1000/example",
+            published=datetime(2024, 6, 1),
+            doi="10.1000/example",
+        ),
+        Paper(
+            source="semanticscholar",
+            identifier="semantic-id",
+            title="Merged paper",
+            url="https://www.semanticscholar.org/paper/example",
+            published=datetime(2024, 6, 2),
+            doi="10.1000/example",
+        ),
+    ]
+
+    monkeypatch.setattr("paper_alert.service.gather_papers", lambda passed_cfg, progress=None: (papers, []))
+
+    run = run_paper_alert(cfg)
+
+    assert len(run.candidate_papers) == 1
+    assert run.candidate_papers[0].canonical_id == "doi:10.1000/example"
+    assert run.candidate_papers[0].all_sources == ("crossref", "semanticscholar")

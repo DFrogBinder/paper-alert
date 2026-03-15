@@ -10,6 +10,15 @@ from paper_alert.service import PaperAlertRun
 from paper_alert.textual_dashboard import PaperAlertDashboard
 
 
+def _static_text(widget: Static) -> str:
+    content = getattr(widget, "renderable", None)
+    if content is None:
+        content = getattr(widget, "_content", None)
+    if content is None:
+        content = widget.render()
+    return str(content)
+
+
 def _build_run(
     candidate_papers: list[Paper],
     *,
@@ -75,10 +84,10 @@ def test_dashboard_updates_selection_status_when_highlight_changes():
         async with app.run_test() as pilot:
             await pilot.pause()
             status = app.query_one("#selection-status", Static)
-            assert first.title in str(status.renderable)
+            assert first.title in _static_text(status)
             await pilot.press("down")
             status = app.query_one("#selection-status", Static)
-            assert second.title in str(status.renderable)
+            assert second.title in _static_text(status)
 
     asyncio.run(exercise())
 
@@ -111,7 +120,7 @@ def test_dashboard_can_browse_seen_papers():
             await pilot.pause()
             await pilot.press("s")
             status = app.query_one("#selection-status", Static)
-            assert seen_paper.title in str(status.renderable)
-            assert "Status: SEEN" in str(status.renderable)
+            assert seen_paper.title in _static_text(status)
+            assert "Status: SEEN" in _static_text(status)
 
     asyncio.run(exercise())

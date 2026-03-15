@@ -50,6 +50,7 @@ def fetch_arxiv(keywords: Iterable[str], max_results: int = MAX_RESULTS_PER_SOUR
                 title=title,
                 url=link,
                 published=published,
+                arxiv_id=identifier or link,
             )
         )
     return papers

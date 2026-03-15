@@ -51,6 +51,8 @@ def fetch_semantic_scholar(
                 title=title,
                 url=link or "https://www.semanticscholar.org/",
                 published=published,
+                doi=external_ids.get("DOI"),
+                arxiv_id=external_ids.get("ArXiv"),
             )
         )
     return papers

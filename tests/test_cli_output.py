@@ -4,6 +4,7 @@ from datetime import datetime
 
 from paper_alert.models import Paper
 from paper_alert.service import PaperAlertRun
+from paper_alert.store import SeenStore
 
 
 def test_main_always_shows_store_warnings(monkeypatch, capsys, tmp_path):
@@ -175,3 +176,59 @@ def test_main_prints_candidates_when_requested(monkeypatch, capsys):
     assert "Candidate paper one" in captured.out
     assert "Candidate paper two" in captured.out
     assert "No new temporal interference papers detected." not in captured.out
+
+
+def test_main_can_search_archive_without_fetching(monkeypatch, capsys, tmp_path):
+    store = SeenStore(tmp_path / "archive.sqlite3")
+    store.mark_seen(
+        [
+            Paper(
+                source="crossref",
+                identifier="10.1000/example",
+                title="Merged field shaping paper",
+                url="https://doi.org/10.1000/example",
+                published=datetime(2024, 6, 1),
+                doi="10.1000/example",
+            )
+        ]
+    )
+
+    monkeypatch.setenv("PAPER_ALERT_STORE", str(tmp_path / "archive.sqlite3"))
+
+    from paper_alert import cli
+
+    exit_code = cli.main(["--show-archive", "--search", "field shaping", "--show-summary"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "Archive" in captured.out
+    assert "Merged field shaping" in captured.out
+    assert "doi:10.1000/example" in captured.out
+    assert "paper-alert: 1 archived papers matched" in captured.out
+
+
+def test_main_can_update_triage_state(monkeypatch, capsys, tmp_path):
+    store = SeenStore(tmp_path / "archive.sqlite3")
+    store.mark_seen(
+        [
+            Paper(
+                source="crossref",
+                identifier="10.1000/example",
+                title="Merged field shaping paper",
+                url="https://doi.org/10.1000/example",
+                published=datetime(2024, 6, 1),
+                doi="10.1000/example",
+            )
+        ]
+    )
+
+    monkeypatch.setenv("PAPER_ALERT_STORE", str(tmp_path / "archive.sqlite3"))
+
+    from paper_alert import cli
+
+    exit_code = cli.main(["--set-state", "doi:10.1000/example", "saved"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "updated doi:10.1000/example -> saved" in captured.out
+    assert store.query_archive(triage_state="saved")[0].canonical_id == "doi:10.1000/example"

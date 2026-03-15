@@ -39,6 +39,13 @@ def fetch_pubmed(keywords: Iterable[str], max_results: int = MAX_RESULTS_PER_SOU
         sort_date = parse_pubmed_sortdate(payload.get("sortpubdate"))
         published = sort_date or parse_datetime(payload.get("pubdate"))
         link = f"https://pubmed.ncbi.nlm.nih.gov/{uid}/"
+        doi = None
+        for article_id in payload.get("articleids", []) or []:
+            if not isinstance(article_id, dict):
+                continue
+            if str(article_id.get("idtype", "")).lower() == "doi":
+                doi = article_id.get("value")
+                break
         papers.append(
             Paper(
                 source="pubmed",
@@ -46,6 +53,8 @@ def fetch_pubmed(keywords: Iterable[str], max_results: int = MAX_RESULTS_PER_SOU
                 title=title,
                 url=link,
                 published=published,
+                doi=doi,
+                pmid=str(uid),
             )
         )
     return papers

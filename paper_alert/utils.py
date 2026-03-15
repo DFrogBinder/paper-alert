@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 from typing import Iterable, Sequence
+from urllib.parse import urlsplit, urlunsplit
 
 
 ISO_FORMATS = (
@@ -44,6 +45,52 @@ def clean_title(title: str | None) -> str:
         return "Untitled"
     title = re.sub(r"\s+", " ", title)
     return title.strip()
+
+
+def stable_title_key(title: str | None) -> str:
+    cleaned = clean_title(title).lower()
+    slug = re.sub(r"[^a-z0-9]+", "-", cleaned).strip("-")
+    return slug or "untitled"
+
+
+def normalize_doi(value: str | None) -> str | None:
+    if not value:
+        return None
+    doi = value.strip()
+    doi = re.sub(r"^https?://(?:dx\.)?doi\.org/", "", doi, flags=re.IGNORECASE)
+    doi = doi.lower()
+    return doi or None
+
+
+def normalize_arxiv_id(value: str | None) -> str | None:
+    if not value:
+        return None
+    raw = value.strip()
+    raw = re.sub(r"^https?://arxiv\.org/(?:abs|pdf)/", "", raw, flags=re.IGNORECASE)
+    raw = re.sub(r"^arxiv:", "", raw, flags=re.IGNORECASE)
+    raw = raw.removesuffix(".pdf")
+    raw = re.sub(r"v\d+$", "", raw, flags=re.IGNORECASE)
+    raw = raw.strip().lower()
+    return raw or None
+
+
+def normalize_url(value: str | None) -> str | None:
+    if not value:
+        return None
+    raw = value.strip()
+    parsed = urlsplit(raw)
+    if not parsed.scheme and not parsed.netloc:
+        return raw.rstrip("/").lower() or None
+    normalized = urlunsplit(
+        (
+            parsed.scheme.lower() or "https",
+            parsed.netloc.lower(),
+            parsed.path.rstrip("/"),
+            parsed.query,
+            "",
+        )
+    )
+    return normalized or None
 
 
 def matches_keywords(text: str, keywords: Iterable[str]) -> bool:
