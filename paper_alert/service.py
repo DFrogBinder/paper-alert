@@ -9,6 +9,7 @@ from .aggregator import gather_papers
 from .config import PaperAlertConfig
 from .models import Paper
 from .store import SeenStore
+from .utils import normalize_datetime
 
 SOURCE_PRIORITY = (
     "pubmed",
@@ -50,7 +51,9 @@ def _merge_group(papers: list[Paper]) -> Paper:
         papers,
         key=lambda paper: (_source_rank(paper.source), 0 if paper.url else 1, paper.title),
     )
-    published_values = [paper.published for paper in papers if paper.published is not None]
+    published_values = [
+        normalize_datetime(paper.published) for paper in papers if paper.published is not None
+    ]
     published = max(published_values) if published_values else None
     sources = _unique_in_order(
         paper.source
@@ -82,7 +85,11 @@ def _merge_papers(papers: Iterable[Paper]) -> List[Paper]:
 
 
 def _sort_papers(papers: Iterable[Paper]) -> List[Paper]:
-    return sorted(papers, key=lambda p: p.published or datetime.min, reverse=True)
+    return sorted(
+        papers,
+        key=lambda paper: normalize_datetime(paper.published) or datetime.min,
+        reverse=True,
+    )
 
 
 @dataclass(slots=True)
@@ -126,7 +133,7 @@ def run_paper_alert(
         errors=errors,
         cached_count=cached_count,
         candidate_count=len(annotated_candidates),
-        source_count=len(cfg.sources),
+        source_count=len({source.casefold() for source in cfg.sources if source}),
         candidate_papers=annotated_candidates,
         seen_papers=seen_papers,
     )

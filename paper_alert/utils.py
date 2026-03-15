@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Iterable, Sequence
 from urllib.parse import urlsplit, urlunsplit
 
@@ -19,10 +19,7 @@ def parse_datetime(value: str | None) -> datetime | None:
     value = value.strip()
     for fmt in ISO_FORMATS:
         try:
-            dt = datetime.strptime(value, fmt)
-            if not dt.tzinfo:
-                return dt
-            return dt.astimezone(tz=None)
+            return normalize_datetime(datetime.strptime(value, fmt))
         except ValueError:
             continue
     return None
@@ -34,7 +31,7 @@ def parse_pubmed_sortdate(value: str | None) -> datetime | None:
     value = value.strip()
     for fmt in ("%Y/%m/%d %H:%M", "%Y/%m/%d %H:%M:%S"):
         try:
-            return datetime.strptime(value, fmt)
+            return normalize_datetime(datetime.strptime(value, fmt))
         except ValueError:
             continue
     return parse_datetime(value)
@@ -108,6 +105,14 @@ def parse_date_parts(parts: Sequence[Sequence[int]] | None) -> datetime | None:
     month = first[1] if len(first) >= 2 else 1
     day = first[2] if len(first) >= 3 else 1
     try:
-        return datetime(year, month, day)
+        return normalize_datetime(datetime(year, month, day))
     except ValueError:
         return None
+
+
+def normalize_datetime(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(UTC).replace(tzinfo=None)

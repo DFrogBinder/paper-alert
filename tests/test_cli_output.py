@@ -9,7 +9,7 @@ from paper_alert.store import SeenStore
 
 def test_main_always_shows_store_warnings(monkeypatch, capsys, tmp_path):
     cfg_path = tmp_path / "seen.json"
-    cfg_path.write_text("{broken", encoding="utf-8")
+    cfg_path.write_text('{"seen": ["arxiv:old"]}', encoding="utf-8")
 
     monkeypatch.setenv("PAPER_ALERT_STORE", str(cfg_path))
     monkeypatch.setattr(
@@ -24,7 +24,7 @@ def test_main_always_shows_store_warnings(monkeypatch, capsys, tmp_path):
     captured = capsys.readouterr()
     assert exit_code == 0
     assert "Warnings" in captured.out
-    assert "store: seen-store at" in captured.out
+    assert "migrated legacy seen-store" in captured.out
 
 
 def test_main_renders_summary_banner_by_default_and_hides_optional_errors(monkeypatch, capsys):
@@ -232,3 +232,23 @@ def test_main_can_update_triage_state(monkeypatch, capsys, tmp_path):
     assert exit_code == 0
     assert "updated doi:10.1000/example -> saved" in captured.out
     assert store.query_archive(triage_state="saved")[0].canonical_id == "doi:10.1000/example"
+
+
+def test_main_exits_cleanly_for_unrelated_existing_store_path(monkeypatch, capsys, tmp_path):
+    store_path = tmp_path / "notes.txt"
+    store_path.write_text("do not overwrite", encoding="utf-8")
+
+    monkeypatch.setenv("PAPER_ALERT_STORE", str(store_path))
+    monkeypatch.setattr(
+        "paper_alert.service.gather_papers",
+        lambda passed_cfg, progress=None: ([], []),
+    )
+
+    from paper_alert import cli
+
+    exit_code = cli.main(["--quiet-if-none"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "refusing to overwrite" in captured.err
+    assert store_path.read_text(encoding="utf-8") == "do not overwrite"

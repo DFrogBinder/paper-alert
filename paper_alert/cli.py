@@ -9,9 +9,9 @@ from typing import Sequence
 from rich.console import Console
 
 from .constants import TRIAGE_STATES
-from .config import PaperAlertConfig
+from .config import PaperAlertConfig, normalize_sources
 from .service import PaperAlertRun, run_paper_alert
-from .store import SeenStore
+from .store import SeenStore, StoreError
 from .ui import build_errors_panel, build_papers_panel, build_summary_banner
 
 
@@ -91,7 +91,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument(
         "--store",
-        help="Override the path to the JSON file that tracks seen papers.",
+        help="Override the path to the SQLite archive database.",
     )
     parser.add_argument(
         "--quiet-if-none",
@@ -181,11 +181,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error(str(exc))
     overrides = {}
     keywords_override = _parse_csv(args.keywords)
-    sources_override = _parse_csv(args.sources)
+    sources_override = None
+    if args.sources is not None:
+        raw_sources = _parse_csv(args.sources)
+        if not raw_sources:
+            parser.error("--sources must contain at least one source")
+        try:
+            sources_override = normalize_sources(raw_sources)
+        except ValueError as exc:
+            parser.error(str(exc))
     if keywords_override:
         overrides["keywords"] = keywords_override
-    if sources_override:
-        overrides["sources"] = tuple(source.lower() for source in sources_override)
+    if sources_override is not None:
+        overrides["sources"] = sources_override
     if args.max_results is not None:
         overrides["max_results"] = args.max_results
     if args.store:
@@ -194,10 +202,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         config = replace(config, **overrides)
 
     if args.show_archive or args.set_state:
-        return _run_archive_mode(config, args.show_archive, args.search, args.state, args.set_state, args.show_summary)
+        return _run_archive_mode(
+            config,
+            args.show_archive,
+            args.search,
+            args.state,
+            args.set_state,
+            args.show_summary,
+        )
 
     progress = _print_progress if args.show_progress else None
-    run = run_paper_alert(config, progress=progress)
+    try:
+        run = run_paper_alert(config, progress=progress)
+    except StoreError as exc:
+        print(f"paper-alert: {exc}", file=sys.stderr)
+        return 1
     if args.dashboard:
         return _run_dashboard(run)
 
@@ -246,34 +265,38 @@ def _run_archive_mode(
     set_state_args: Sequence[str] | None,
     show_summary: bool,
 ) -> int:
-    store = SeenStore(config.store_path)
-    console = Console(highlight=False)
+    try:
+        store = SeenStore(config.store_path)
+        console = Console(highlight=False)
 
-    if set_state_args is not None:
-        canonical_id, triage_state = set_state_args[0], set_state_args[1].lower()
-        updated = store.set_triage_state(canonical_id, triage_state)
-        if not updated:
-            print(f"paper-alert: no archived paper found for {canonical_id!r}", file=sys.stderr)
-            return 1
-        print(f"paper-alert: updated {canonical_id} -> {triage_state}")
+        if set_state_args is not None:
+            canonical_id, triage_state = set_state_args[0], set_state_args[1].lower()
+            updated = store.set_triage_state(canonical_id, triage_state)
+            if not updated:
+                print(f"paper-alert: no archived paper found for {canonical_id!r}", file=sys.stderr)
+                return 1
+            print(f"paper-alert: updated {canonical_id} -> {triage_state}")
 
-    if show_archive:
-        archive_papers = store.query_archive(search=search, triage_state=state)
-        console.print(
-            build_papers_panel(
-                "Archive",
-                archive_papers,
-                empty_message="No archived papers matched the current query.",
-                show_triage=True,
-                show_canonical_id=True,
+        if show_archive:
+            archive_papers = store.query_archive(search=search, triage_state=state)
+            console.print(
+                build_papers_panel(
+                    "Archive",
+                    archive_papers,
+                    empty_message="No archived papers matched the current query.",
+                    show_triage=True,
+                    show_canonical_id=True,
+                )
             )
-        )
-        if show_summary:
-            print(_format_archive_summary(len(archive_papers)))
+            if show_summary:
+                print(_format_archive_summary(len(archive_papers)))
 
-    if store.warnings:
-        console.print(build_errors_panel(store.warnings))
-    return 0
+        if store.warnings:
+            console.print(build_errors_panel(store.warnings))
+        return 0
+    except StoreError as exc:
+        print(f"paper-alert: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

@@ -8,6 +8,7 @@ from typing import Iterable, Set
 
 from .constants import DEFAULT_TRIAGE_STATE, TRIAGE_STATES
 from .models import Paper
+from .utils import normalize_datetime
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS papers (
@@ -29,6 +30,10 @@ CREATE TABLE IF NOT EXISTS papers (
 CREATE INDEX IF NOT EXISTS idx_papers_triage_state ON papers (triage_state);
 CREATE INDEX IF NOT EXISTS idx_papers_last_seen_at ON papers (last_seen_at);
 """
+
+
+class StoreError(RuntimeError):
+    """Raised when the configured archive path is unsafe or unusable."""
 
 
 class SeenStore:
@@ -63,31 +68,39 @@ class SeenStore:
         if not self.path.exists() or self._is_sqlite_database():
             return None
 
-        raw = self.path.read_text(encoding="utf-8")
+        try:
+            raw = self.path.read_text(encoding="utf-8")
+        except UnicodeDecodeError as exc:
+            raise StoreError(
+                f"store path {self.path} exists but is not a SQLite archive or supported legacy JSON seen-store; refusing to overwrite it"
+            ) from exc
+
+        seen_keys = self._extract_legacy_seen_keys(raw)
         backup_path = self.path.with_suffix(self.path.suffix + ".legacy.json")
         if not backup_path.exists():
             backup_path.write_text(raw, encoding="utf-8")
 
-        seen_keys: set[str] = set()
-        if raw.strip():
-            try:
-                payload = json.loads(raw)
-            except json.JSONDecodeError:
-                self._warn(
-                    f"store: seen-store at {self.path} contains invalid JSON; treating it as empty"
-                )
-            else:
-                if isinstance(payload, dict) and isinstance(payload.get("seen"), list):
-                    seen_keys = {str(item) for item in payload["seen"]}
-                elif isinstance(payload, list):
-                    seen_keys = {str(item) for item in payload}
-
         self.path.unlink(missing_ok=True)
-        if seen_keys:
-            self._warn(
-                f"store: migrated legacy seen-store at {backup_path} into SQLite archive format"
-            )
+        self._warn(
+            f"store: migrated legacy seen-store at {backup_path} into SQLite archive format"
+        )
         return seen_keys
+
+    def _extract_legacy_seen_keys(self, raw: str) -> set[str]:
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise StoreError(
+                f"store path {self.path} exists but is not a SQLite archive or supported legacy JSON seen-store; refusing to overwrite it"
+            ) from exc
+
+        if isinstance(payload, dict) and isinstance(payload.get("seen"), list):
+            return {str(item) for item in payload["seen"]}
+        if isinstance(payload, list):
+            return {str(item) for item in payload}
+        raise StoreError(
+            f"store path {self.path} exists but is not a SQLite archive or supported legacy JSON seen-store; refusing to overwrite it"
+        )
 
     def _is_sqlite_database(self) -> bool:
         if not self.path.exists():
@@ -129,13 +142,14 @@ class SeenStore:
         return datetime.now(UTC).isoformat(timespec="seconds")
 
     def _serialize_datetime(self, value: datetime | None) -> str | None:
-        return value.isoformat() if value else None
+        normalized = normalize_datetime(value)
+        return normalized.isoformat() if normalized else None
 
     def _deserialize_datetime(self, value: str | None) -> datetime | None:
         if not value:
             return None
         try:
-            return datetime.fromisoformat(value)
+            return normalize_datetime(datetime.fromisoformat(value))
         except ValueError:
             return None
 
@@ -186,9 +200,11 @@ class SeenStore:
         if existing is None:
             return current
 
-        published = existing.published
-        if current.published and (published is None or current.published > published):
-            published = current.published
+        existing_published = normalize_datetime(existing.published)
+        current_published = normalize_datetime(current.published)
+        published = existing_published
+        if current_published and (published is None or current_published > published):
+            published = current_published
 
         sources = _unique_in_order([*existing.all_sources, *current.all_sources])
         urls = _unique_in_order([*existing.all_urls, *current.all_urls])

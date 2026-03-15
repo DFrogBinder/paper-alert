@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
+import pytest
+
 from paper_alert.models import Paper
-from paper_alert.store import SeenStore
+from paper_alert.store import SeenStore, StoreError
 
 
 def _make_paper(identifier: str, published: datetime) -> Paper:
@@ -66,3 +68,16 @@ def test_store_migrates_legacy_json(tmp_path):
 
     assert store.load() == {"arxiv:old"}
     assert any("migrated legacy seen-store" in warning for warning in store.warnings)
+
+
+def test_store_refuses_to_overwrite_unrelated_existing_file(tmp_path):
+    store_path = tmp_path / "notes.txt"
+    store_path.write_text("do not overwrite", encoding="utf-8")
+
+    store = SeenStore(store_path)
+
+    with pytest.raises(StoreError, match="refusing to overwrite"):
+        store.count()
+
+    assert store_path.read_text(encoding="utf-8") == "do not overwrite"
+    assert not store_path.with_suffix(".txt.legacy.json").exists()

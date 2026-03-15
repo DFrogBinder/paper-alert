@@ -8,7 +8,8 @@ import pytest
 from paper_alert.config import PaperAlertConfig
 from paper_alert.models import Paper
 from paper_alert.service import collect_new_papers, run_paper_alert
-from paper_alert.store import SeenStore
+from paper_alert.store import SeenStore, StoreError
+from paper_alert.utils import parse_datetime
 
 
 @pytest.fixture
@@ -61,7 +62,7 @@ def test_collect_new_papers_deduplicates_and_persists(monkeypatch, cfg):
     assert store.load() == {"arxiv:new", "arxiv:old"}
 
 
-def test_collect_new_papers_surfaces_corrupt_store_warning(monkeypatch, cfg):
+def test_collect_new_papers_refuses_corrupt_existing_store(monkeypatch, cfg):
     cfg.store_path.write_text("{not-json", encoding="utf-8")
     paper = Paper(
         source="arxiv",
@@ -76,14 +77,8 @@ def test_collect_new_papers_surfaces_corrupt_store_warning(monkeypatch, cfg):
         lambda passed_cfg, progress=None: ([paper], []),
     )
 
-    new_papers, errors = collect_new_papers(cfg)
-
-    assert new_papers == [paper]
-    assert errors == [
-        f"store: seen-store at {cfg.store_path} contains invalid JSON; treating it as empty"
-    ]
-    store = SeenStore(cfg.store_path)
-    assert store.load() == {"arxiv:fresh"}
+    with pytest.raises(StoreError, match="refusing to overwrite"):
+        collect_new_papers(cfg)
 
 
 def test_run_paper_alert_reports_counts(monkeypatch, cfg):
@@ -187,3 +182,32 @@ def test_run_paper_alert_merges_same_paper_across_sources(monkeypatch, tmp_path)
     assert len(run.candidate_papers) == 1
     assert run.candidate_papers[0].canonical_id == "doi:10.1000/example"
     assert run.candidate_papers[0].all_sources == ("crossref", "semanticscholar")
+
+
+def test_run_paper_alert_handles_mixed_datetime_formats(monkeypatch, cfg):
+    papers = [
+        Paper(
+            source="arxiv",
+            identifier="offset",
+            title="Offset paper",
+            url="https://example.com/offset",
+            published=parse_datetime("2024-06-02T00:30:00+00:00"),
+        ),
+        Paper(
+            source="arxiv",
+            identifier="naive",
+            title="Naive paper",
+            url="https://example.com/naive",
+            published=datetime(2024, 6, 1),
+        ),
+    ]
+
+    monkeypatch.setattr(
+        "paper_alert.service.gather_papers",
+        lambda passed_cfg, progress=None: (papers, []),
+    )
+
+    run = run_paper_alert(cfg)
+
+    assert [paper.identifier for paper in run.new_papers] == ["offset", "naive"]
+    assert all(paper.published is None or paper.published.tzinfo is None for paper in run.new_papers)

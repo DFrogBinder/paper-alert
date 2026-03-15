@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Tuple
+from typing import Iterable, Tuple
 
 from .constants import BIORXIV_LOOKBACK, DEFAULT_KEYWORDS, MAX_RESULTS_PER_SOURCE
 
@@ -15,6 +15,8 @@ DEFAULT_SOURCES = (
     "crossref",
     "semanticscholar",
 )
+DEFAULT_STORE_FILENAME = ".paper_alert.sqlite3"
+VALID_SOURCES = frozenset(DEFAULT_SOURCES)
 
 
 @dataclass(slots=True)
@@ -36,7 +38,9 @@ class PaperAlertConfig:
             minimum=1,
         )
         store_env = os.getenv("PAPER_ALERT_STORE")
-        store_path = Path(store_env).expanduser() if store_env else Path.home() / ".paper_alert_seen.json"
+        store_path = (
+            Path(store_env).expanduser() if store_env else Path.home() / DEFAULT_STORE_FILENAME
+        )
         lookback_days = _load_int_env(
             "PAPER_ALERT_LOOKBACK_DAYS",
             default=BIORXIV_LOOKBACK.days,
@@ -69,10 +73,31 @@ def _load_keywords(raw: str | None) -> Tuple[str, ...]:
 
 def _load_sources(raw: str | None) -> Tuple[str, ...]:
     if raw:
-        items = [item.strip().lower() for item in raw.split(",") if item.strip()]
+        items = [item.strip() for item in raw.split(",") if item.strip()]
         if items:
-            return tuple(items)
+            return normalize_sources(items)
     return DEFAULT_SOURCES
+
+
+def normalize_sources(values: Iterable[str]) -> Tuple[str, ...]:
+    normalized: list[str] = []
+    invalid: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        source = str(value).strip().lower()
+        if not source or source in seen:
+            continue
+        seen.add(source)
+        if source not in VALID_SOURCES:
+            invalid.append(source)
+            continue
+        normalized.append(source)
+    if invalid:
+        valid = ", ".join(DEFAULT_SOURCES)
+        unknown = ", ".join(invalid)
+        plural = "sources" if len(invalid) != 1 else "source"
+        raise ValueError(f"unknown {plural}: {unknown}. Expected one of: {valid}.")
+    return tuple(normalized)
 
 
 def _load_int_env(name: str, *, default: int, minimum: int) -> int:

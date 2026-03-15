@@ -2,14 +2,16 @@
 
 A lightweight Python utility that queries multiple publication sources for temporal interference-related papers and prints a polished startup banner whenever your shell starts. When you want detail, you can open a Textual dashboard or ask for explicit paper lists from the CLI.
 
-New here: start with [docs/ONBOARDING.md](/home/boyan/sandbox/paper-alert/docs/ONBOARDING.md). It is the shortest path to understanding how the project works, where to change things, and what the current rough edges are.
+New here: start with [docs/ONBOARDING.md](/home/boyan/sandbox/paper-alert/docs/ONBOARDING.md). It is the shortest path to understanding how the project works, where to change things, and what the current rough edges are. Future-facing ideas live in [docs/FEATURE_ROADMAP.md](/home/boyan/sandbox/paper-alert/docs/FEATURE_ROADMAP.md).
 
 ## Features
 - Aggregates from arXiv, PubMed, bioRxiv, medRxiv, Crossref, and Semantic Scholar
-- Tracks seen papers in a hidden JSON file (default `~/.paper_alert_seen.json`)
+- Canonically merges overlapping records across sources when DOI, arXiv id, or PMID metadata is available
+- Stores a local SQLite archive with per-paper triage state and search support
 - Configurable keywords, sources, and quotas via environment variables or CLI flags
 - Styled summary banner for `.zshrc` (or any shell init script) usage
 - Optional Textual dashboard for manual inspection of new papers, candidates, and warnings
+- Offline archive review commands for searching and triaging previously seen papers
 
 ## Prerequisites
 - Python 3.10+ (tested with 3.12)
@@ -33,12 +35,15 @@ Common options:
 - `--show-summary` – print a one-line status summary in addition to the styled output
 - `--show-progress` – print source-by-source progress while checking APIs
 - `--show-new` – print the new papers captured in the current run
-- `--show-candidate` / `--show-candidates` – print the deduplicated candidate-paper list before the seen-store filters out already-cached items
+- `--show-candidate` / `--show-candidates` – print the canonical candidate-paper list before archive history filters out already-cached items
 - `--dashboard` / `--app` – open the Textual dashboard for interactive inspection
+- `--show-archive --search "term"` – query the local archive without hitting remote APIs
+- `--show-archive --state saved` – filter archived papers by triage state
+- `--set-state <CANONICAL_ID> <STATE>` – update a paper triage state (`new`, `saved`, `dismissed`, `later`)
 - `--keywords "kw1,kw2"` – override the keyword list
 - `--sources "arxiv,pubmed"` – restrict active sources
 - `--max-results 50` – change per-source limit
-- `--store ~/.local/share/paper-alert.json` – move the seen-store file
+- `--store ~/.local/share/paper-alert.sqlite3` – move the archive database
 
 All options have environment-variable equivalents:
 - `PAPER_ALERT_KEYWORDS`
@@ -58,8 +63,8 @@ All options have environment-variable equivalents:
    ```sh
    ppl --show-errors
    ```
-4. Review the banner: the default CLI now renders a compact styled summary instead of dumping titles into the prompt. Use `--show-new`, `--show-candidate`, or `--dashboard` when you want detail.
-5. The JSON store at `~/.paper_alert_seen.json` (or your configured `--store` path) tracks what you have already seen; delete it if you want to re-alert on every result.
+4. Review the banner: the default CLI now renders a compact styled summary instead of dumping titles into the prompt. Use `--show-new`, `--show-candidate`, `--show-archive`, or `--dashboard` when you want detail.
+5. The local archive database at your configured `--store` path tracks canonical paper records plus triage state. Use `--show-archive` to review it and `--set-state` to organize it.
 6. Once manual runs look good, copy the snippet from the next section into your shell init file so the check executes automatically whenever a terminal opens.
 
 ## HOW TO USE
@@ -84,6 +89,14 @@ Practical invocations you can copy/paste or adapt:
 - **List every deduplicated candidate title, including already-seen papers** – useful when you want to inspect the full fetched set instead of only new items.
   ```sh
   ppl --show-candidate --show-summary
+  ```
+- **Search the local archive without making network calls** – useful when you want to find an older paper quickly.
+  ```sh
+  ppl --show-archive --search "field shaping" --show-summary
+  ```
+- **Mark an archived paper as saved, dismissed, or read later** – triage is keyed by canonical id.
+  ```sh
+  ppl --set-state doi:10.1000/example saved
   ```
 - **Open the Textual dashboard** – interactive view for summary, new papers, candidates, and warnings.
   ```sh
@@ -135,18 +148,20 @@ If no new papers are found the snippet above stays silent.
 1. Build the keyword query set (default phrases related to temporal interference)
 2. Query each configured source with polite delays and a custom user-agent
 3. Normalize results to a common `Paper` model (id, title, URL, publication date)
-4. Compare against the JSON store of seen items
+4. Compare against the local archive of canonical papers and triage state
 5. Render a startup summary banner and persist newly seen identifiers
 
 ## Behavior Notes
 - `--max-results` and numeric environment settings are validated before execution; invalid values now fail with a clear CLI error.
-- If the seen-store JSON is corrupt, the tool warns and treats it as empty instead of silently resetting state.
+- If the existing store path still contains a legacy JSON seen-store, the tool migrates it into the SQLite archive format.
 - `PAPER_ALERT_USER_AGENT` is read when requests are made, so environment changes take effect immediately on the next run.
+- Candidate dedupe is now canonical when stable ids are available, so matching DOI/arXiv/PMID records from multiple sources collapse into one paper.
 - Source matching is less title-biased than before: arXiv, Crossref, and Semantic Scholar also inspect summary or abstract fields, and PubMed trusts the upstream query result instead of re-filtering on title alone.
 - The default CLI run now renders a compact summary banner that is designed for shell startup rather than dumping paper titles into the prompt.
 - `--show-summary` reports how many sources were checked, how many candidate papers were considered, how many were new, and how many cached identifiers are now stored locally.
 - `--show-new` prints the new-paper list for the current run.
-- `--show-candidate` / `--show-candidates` prints the deduplicated candidate-paper list before the seen-store removes items you have already seen.
+- `--show-candidate` / `--show-candidates` prints the canonical candidate-paper list before the archive removes items you have already seen.
+- `--show-archive` searches the local archive and `--set-state` updates archived paper triage state without hitting remote APIs.
 - `--dashboard` opens the Textual dashboard for manual inspection.
 
 ### Code pipeline block diagram
@@ -172,9 +187,9 @@ If no new papers are found the snippet above stays silent.
         │         │
         │         ▼
         │   ┌───────────────┐
-        │   │ SeenStore JSON│ paper_alert/store.py
-        │   │ mark_seen/save│
-        │   └───────────────┘
+│   │ ArchiveStore  │ paper_alert/store.py
+│   │ mark_seen/save│
+│   └───────────────┘
         │
         ▼
 ┌───────────────────────────────────────┐
@@ -215,7 +230,7 @@ If no new papers are found the snippet above stays silent.
 └──────────────────────────────┘
 ```
 
-The seen-store is small, human-readable JSON. Delete the file if you want to re-alert on everything.
+The archive is a local SQLite database. Delete the file if you want to re-alert on everything or reset triage history.
 
 ## Troubleshooting
 - **API rate limits** – make sure you set a meaningful user-agent and, if needed, add sleeps or reduce frequency.
