@@ -34,6 +34,7 @@ class PaperAlertRun:
     candidate_count: int
     source_count: int
     candidate_papers: List[Paper] = field(default_factory=list)
+    seen_papers: List[Paper] = field(default_factory=list)
 
 
 def run_paper_alert(
@@ -44,9 +45,20 @@ def run_paper_alert(
     papers, errors = gather_papers(cfg, progress=progress)
     candidate_papers = _sort_papers(_deduplicate(papers))
     store = SeenStore(cfg.store_path)
-    new_papers = store.mark_seen(candidate_papers)
+    seen_keys = store.load()
+    new_papers: List[Paper] = []
+    seen_papers: List[Paper] = []
+    updated_seen = set(seen_keys)
+    for paper in candidate_papers:
+        if paper.key in seen_keys:
+            seen_papers.append(paper)
+            continue
+        new_papers.append(paper)
+        updated_seen.add(paper.key)
+    if new_papers:
+        store.save(updated_seen)
     errors.extend(store.warnings)
-    cached_count = len(store.load())
+    cached_count = len(updated_seen)
     return PaperAlertRun(
         new_papers=new_papers,
         errors=errors,
@@ -54,6 +66,7 @@ def run_paper_alert(
         candidate_count=len(candidate_papers),
         source_count=len(cfg.sources),
         candidate_papers=candidate_papers,
+        seen_papers=seen_papers,
     )
 
 

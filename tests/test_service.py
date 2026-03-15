@@ -115,7 +115,37 @@ def test_run_paper_alert_reports_counts(monkeypatch, cfg):
     run = run_paper_alert(cfg)
 
     assert [paper.identifier for paper in run.new_papers] == ["new", "old"]
+    assert run.seen_papers == []
     assert [paper.identifier for paper in run.candidate_papers] == ["new", "old"]
     assert run.candidate_count == 2
     assert run.cached_count == 2
     assert run.source_count == 1
+
+
+def test_run_paper_alert_tracks_seen_candidates(monkeypatch, cfg):
+    cfg.store_path.write_text(json.dumps({"seen": ["arxiv:old"]}), encoding="utf-8")
+    papers = [
+        Paper(
+            source="arxiv",
+            identifier="old",
+            title="Older paper",
+            url="https://example.com/old",
+            published=datetime(2023, 6, 1),
+        ),
+        Paper(
+            source="arxiv",
+            identifier="new",
+            title="Newer paper",
+            url="https://example.com/new",
+            published=datetime(2024, 6, 1),
+        ),
+    ]
+
+    monkeypatch.setattr("paper_alert.service.gather_papers", lambda passed_cfg, progress=None: (papers, []))
+
+    run = run_paper_alert(cfg)
+
+    assert [paper.identifier for paper in run.new_papers] == ["new"]
+    assert [paper.identifier for paper in run.seen_papers] == ["old"]
+    assert [paper.identifier for paper in run.candidate_papers] == ["new", "old"]
+    assert run.cached_count == 2

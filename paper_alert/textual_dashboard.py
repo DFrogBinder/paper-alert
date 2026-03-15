@@ -26,16 +26,24 @@ def _format_published_date(paper: Paper) -> str:
 
 def _summary_headline(run: PaperAlertRun) -> str:
     new_count = len(run.new_papers)
+    seen_count = len(run.seen_papers)
     if new_count:
-        return f"{new_count} new paper{'s' if new_count != 1 else ''} ready to review."
-    return "Up to date across your tracked sources."
+        return (
+            f"{new_count} new paper{'s' if new_count != 1 else ''} surfaced in this run. "
+            f"{seen_count} candidate{'s' if seen_count != 1 else ''} were already in your store."
+        )
+    if run.candidate_papers:
+        return "All current candidates have already been seen."
+    return "No candidate papers matched the current query."
 
 
-def _paper_details_text(paper: Paper | None) -> str:
+def _paper_details_text(paper: Paper | None, status: str | None) -> str:
     if paper is None:
         return "No paper selected.\nChoose a row, then press Enter or click to open the paper page."
+    badge = status or "UNKNOWN"
     return (
         f"Title: {paper.title}\n"
+        f"Status: {badge}\n"
         f"Source: {_format_source_label(paper.source)}\n"
         f"Published: {_format_published_date(paper)}\n"
         f"URL: {paper.url}\n"
@@ -54,28 +62,28 @@ def _count_label(title: str, count: int) -> str:
     return f"{title} ({count})"
 
 
-def _first_paper(run: PaperAlertRun) -> Paper | None:
-    if run.new_papers:
-        return run.new_papers[0]
-    if run.candidate_papers:
-        return run.candidate_papers[0]
-    return None
-
-
-def _initial_tab_id(run: PaperAlertRun) -> str:
-    if run.new_papers:
-        return "new-papers-pane"
-    if run.candidate_papers:
-        return "candidate-papers-pane"
-    if run.errors:
-        return "warnings-pane"
-    return "new-papers-pane"
-
-
 def _paper_title_for_notification(paper: Paper) -> str:
     if len(paper.title) <= 72:
         return paper.title
     return f"{paper.title[:69]}..."
+
+
+def _build_status_map(run: PaperAlertRun) -> dict[str, str]:
+    status_map = {paper.key: "SEEN" for paper in run.seen_papers}
+    status_map.update({paper.key: "NEW" for paper in run.new_papers})
+    return status_map
+
+
+def _first_paper_in_list(papers: list[Paper]) -> Paper | None:
+    return papers[0] if papers else None
+
+
+def _initial_tab_id(run: PaperAlertRun) -> str:
+    if run.candidate_papers:
+        return "candidate-papers-pane"
+    if run.errors:
+        return "warnings-pane"
+    return "candidate-papers-pane"
 
 
 def run_dashboard(run: PaperAlertRun) -> None:
@@ -96,7 +104,13 @@ def _build_dashboard_class():
     from textual.widgets import DataTable, Footer, Header, Static, TabPane, TabbedContent
 
     class PaperTable(DataTable[str], PaperTableMixin):
-        def __init__(self, papers: list[Paper], *, id: str) -> None:
+        def __init__(
+            self,
+            papers: list[Paper],
+            status_by_key: dict[str, str],
+            *,
+            id: str,
+        ) -> None:
             super().__init__(
                 show_row_labels=False,
                 zebra_stripes=True,
@@ -107,11 +121,16 @@ def _build_dashboard_class():
                 classes="paper-table",
             )
             self._papers_by_key = {paper.key: paper for paper in papers}
+            self._status_by_key = {
+                paper.key: status_by_key.get(paper.key, "CANDIDATE") for paper in papers
+            }
+            self.add_column("Status", width=9, key="status")
             self.add_column("Published", width=12, key="published")
             self.add_column("Source", width=18, key="source")
             self.add_column("Title", key="title")
             for paper in papers:
                 self.add_row(
+                    self._status_by_key[paper.key],
                     _format_published_date(paper),
                     _format_source_label(paper.source),
                     paper.title,
@@ -159,9 +178,9 @@ def _build_dashboard_class():
         }
 
         #sidebar {
-            width: 32;
-            min-width: 28;
-            max-width: 36;
+            width: 34;
+            min-width: 30;
+            max-width: 38;
             margin: 0 1 0 0;
         }
 
@@ -181,6 +200,7 @@ def _build_dashboard_class():
 
         #brand-card {
             background: #101d30;
+            border: round #375a7f;
             color: #f8fafc;
             text-style: bold;
         }
@@ -191,7 +211,36 @@ def _build_dashboard_class():
 
         .metric-card {
             text-style: bold;
-            color: #f8fafc;
+        }
+
+        #source-metric {
+            border: round #365a7f;
+            background: #0d1b2a;
+            color: #dbeafe;
+        }
+
+        #candidate-metric {
+            border: round #1d4ed8;
+            background: #0b1e35;
+            color: #dbeafe;
+        }
+
+        #seen-metric {
+            border: round #475569;
+            background: #111b28;
+            color: #e2e8f0;
+        }
+
+        #new-metric {
+            border: round #0f766e;
+            background: #08201d;
+            color: #d1fae5;
+        }
+
+        #cached-metric {
+            border: round #4b5563;
+            background: #111827;
+            color: #e5e7eb;
         }
 
         #controls-card {
@@ -281,7 +330,7 @@ def _build_dashboard_class():
         }
 
         #selection-status {
-            min-height: 5;
+            min-height: 6;
             padding: 1 2;
             border: round #1f3651;
             background: #08111d;
@@ -290,10 +339,14 @@ def _build_dashboard_class():
         """
 
         BINDINGS = [
-            ("q", "quit", "Quit"),
-            ("escape", "quit", "Quit"),
+            ("c", "show_candidates", "Candidates"),
+            ("s", "show_seen", "Seen"),
+            ("n", "show_new", "New"),
+            ("w", "show_warnings", "Warnings"),
             ("tab", "focus_next", "Next Panel"),
             ("shift+tab", "focus_previous", "Prev Panel"),
+            ("q", "quit", "Quit"),
+            ("escape", "quit", "Quit"),
         ]
 
         def __init__(
@@ -305,6 +358,7 @@ def _build_dashboard_class():
             super().__init__()
             self._run = run
             self._open_url = open_url
+            self._status_by_key = _build_status_map(run)
 
         def compose(self) -> ComposeResult:
             yield Header(show_clock=False)
@@ -314,29 +368,43 @@ def _build_dashboard_class():
                     yield Static(_summary_headline(self._run), id="status-card", classes="sidebar-card", markup=False)
                     yield Static(
                         f"[b]{self._run.source_count}[/b]\nSources tracked",
+                        id="source-metric",
                         classes="sidebar-card metric-card",
                     )
                     yield Static(
-                        f"[b]{self._run.candidate_count}[/b]\nCandidate papers",
+                        f"[b]{self._run.candidate_count}[/b]\nCandidates",
+                        id="candidate-metric",
                         classes="sidebar-card metric-card",
                     )
                     yield Static(
-                        f"[b]{len(self._run.new_papers)}[/b]\nNew this run",
+                        f"[b]{len(self._run.seen_papers)}[/b]\nSeen in this run",
+                        id="seen-metric",
                         classes="sidebar-card metric-card",
                     )
                     yield Static(
-                        f"[b]{self._run.cached_count}[/b]\nCached papers",
+                        f"[b]{len(self._run.new_papers)}[/b]\nNew in this run",
+                        id="new-metric",
                         classes="sidebar-card metric-card",
                     )
                     yield Static(
-                        "Use Tab to switch panes.\nUse Up and Down to move.\nPress Enter or click a row to open it.",
+                        f"[b]{self._run.cached_count}[/b]\nCached in store",
+                        id="cached-metric",
+                        classes="sidebar-card metric-card",
+                    )
+                    yield Static(
+                        "Keys:\n"
+                        "c = candidates\n"
+                        "s = seen\n"
+                        "n = new\n"
+                        "w = warnings\n"
+                        "Enter or click opens the selected paper.",
                         id="controls-card",
                         classes="sidebar-card",
                         markup=False,
                     )
                     if self._run.errors:
                         yield Static(
-                            f"{len(self._run.errors)} warning{'s' if len(self._run.errors) != 1 else ''} captured.\nOpen the Warnings tab for details.",
+                            f"{len(self._run.errors)} warning{'s' if len(self._run.errors) != 1 else ''} captured.\nPress w to inspect the warnings tab.",
                             id="warnings-card",
                             classes="sidebar-card",
                             markup=False,
@@ -344,22 +412,50 @@ def _build_dashboard_class():
                 with Vertical(id="workspace"):
                     with TabbedContent(initial=_initial_tab_id(self._run), id="paper-tabs"):
                         with TabPane(
-                            _count_label("New Papers", len(self._run.new_papers)),
-                            id="new-papers-pane",
-                        ):
-                            if self._run.new_papers:
-                                yield PaperTable(self._run.new_papers, id="new-papers-table")
-                            else:
-                                yield Static("No new papers in this run.", classes="empty-state", markup=False)
-                        with TabPane(
-                            _count_label("Candidate Papers", len(self._run.candidate_papers)),
+                            _count_label("Candidates", len(self._run.candidate_papers)),
                             id="candidate-papers-pane",
                         ):
                             if self._run.candidate_papers:
-                                yield PaperTable(self._run.candidate_papers, id="candidate-papers-table")
+                                yield PaperTable(
+                                    self._run.candidate_papers,
+                                    self._status_by_key,
+                                    id="candidate-papers-table",
+                                )
                             else:
                                 yield Static(
                                     "No candidate papers matched the current query.",
+                                    classes="empty-state",
+                                    markup=False,
+                                )
+                        with TabPane(
+                            _count_label("Seen", len(self._run.seen_papers)),
+                            id="seen-papers-pane",
+                        ):
+                            if self._run.seen_papers:
+                                yield PaperTable(
+                                    self._run.seen_papers,
+                                    self._status_by_key,
+                                    id="seen-papers-table",
+                                )
+                            else:
+                                yield Static(
+                                    "No already-seen papers were present in the current candidate set.",
+                                    classes="empty-state",
+                                    markup=False,
+                                )
+                        with TabPane(
+                            _count_label("New", len(self._run.new_papers)),
+                            id="new-papers-pane",
+                        ):
+                            if self._run.new_papers:
+                                yield PaperTable(
+                                    self._run.new_papers,
+                                    self._status_by_key,
+                                    id="new-papers-table",
+                                )
+                            else:
+                                yield Static(
+                                    "No new papers were found in this run.",
                                     classes="empty-state",
                                     markup=False,
                                 )
@@ -370,7 +466,7 @@ def _build_dashboard_class():
                             ):
                                 yield Static(build_errors_panel(self._run.errors))
                     yield Static(
-                        _paper_details_text(_first_paper(self._run)),
+                        _paper_details_text(_first_paper_in_list(self._run.candidate_papers), "NEW" if self._run.new_papers else "SEEN" if self._run.seen_papers else None),
                         id="selection-status",
                         markup=False,
                     )
@@ -378,7 +474,7 @@ def _build_dashboard_class():
 
         def on_mount(self) -> None:
             self._focus_first_table()
-            self._update_selection_status(_first_paper(self._run))
+            self._update_selection_status(_first_paper_in_list(self._run.candidate_papers))
 
         def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
             for table in event.pane.query("PaperTable"):
@@ -414,13 +510,30 @@ def _build_dashboard_class():
                 timeout=3.5,
             )
 
+        def action_show_candidates(self) -> None:
+            self._show_tab("candidate-papers-pane")
+
+        def action_show_seen(self) -> None:
+            self._show_tab("seen-papers-pane")
+
+        def action_show_new(self) -> None:
+            self._show_tab("new-papers-pane")
+
+        def action_show_warnings(self) -> None:
+            if self._run.errors:
+                self._show_tab("warnings-pane")
+
+        def _show_tab(self, pane_id: str) -> None:
+            self.query_one("#paper-tabs", TabbedContent).active = pane_id
+
         def _focus_first_table(self) -> None:
             for table in self.query("PaperTable"):
                 table.focus()
                 return
 
         def _update_selection_status(self, paper: Paper | None) -> None:
-            self.query_one("#selection-status", Static).update(_paper_details_text(paper))
+            status = self._status_by_key.get(paper.key) if paper is not None else None
+            self.query_one("#selection-status", Static).update(_paper_details_text(paper, status))
 
     return DashboardApp
 
